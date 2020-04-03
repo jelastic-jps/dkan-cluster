@@ -1,0 +1,9 @@
+type: update
+id: setup-dkan-domain
+name: Setup Dkan Domain
+
+globals:
+  DOMAIN: ${settings.domain}
+
+onInstall:
+  - cmd[${nodes.cp.master.id}]: bash ~/bin/setupDKAN.sh --DOMAIN ${globals.DOMAIN}

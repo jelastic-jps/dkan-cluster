@@ -1,0 +1,20 @@
+type: update
+id: setup-dkan-master-master-replication
+name: Setup Dkan Master Master Replication
+
+globals:
+  DB_USER: ${settings.db_user}
+  DB_PASS: ${settings.db_pass}
+
+onInstall:
+  - resetReplication
+  - startReplication
+
+actions:
+      
+  resetReplication:
+    cmd[${nodes.sqldb[0].id}]: mysql -u${globals.DB_USER} -p${globals.DB_PASS} -e "STOP SLAVE; RESET SLAVE; CHANGE MASTER TO MASTER_HOST = 'node${nodes.sqldb[1].id}'"
+    cmd[${nodes.sqldb[1].id}]: mysql -u${globals.DB_USER} -p${globals.DB_PASS} -e "STOP SLAVE; RESET SLAVE; CHANGE MASTER TO MASTER_HOST = 'node${nodes.sqldb[0].id}'"
+    
+  startReplication:
+    cmd[sqldb]: mysql -u${globals.DB_USER} -p${globals.DB_PASS} -e 'START SLAVE;'

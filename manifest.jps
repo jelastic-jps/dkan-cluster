@@ -1,0 +1,134 @@
+type: install
+name: DKAN Cluster
+id: dkan-cluster
+categories:
+  - apps/clusters
+  - apps/content-management
+description: 
+  text: DKAN is a community-driven, free and open source open data platform that gives organizations and individuals ultimate freedom to publish and consume structured information.
+  short: DKAN is a community-driven, free and open source open data platform
+logo: images/dkan-70.png
+
+baseUrl: https://raw.githubusercontent.com/jelastic-jps/dkan-cluster/master
+
+onBeforeInstall: /scripts/beforeinstall.js?_r=${fn.random}
+
+skipNodeEmails: true
+nodes: definedInOnBeforeInstall
+
+globals:
+  DB_USER: jelastic-${fn.random}
+  DB_PASS: ${fn.password(10)}
+  DKAN_ADMIN_PASS: ${fn.password(10)}
+  PROTOCOL: http
+  SUCCESS: success
+  EMAIL: default
+ 
+onAfterScaleOut[nodeGroup:cp]:
+  forEach(event.response.nodes):
+    - log: App Servers Setup
+    - setNodeDisplayName [${@i.id}]: AppServer
+    - setupCP:
+        nodeId: ${@i.id}
+        
+onAfterRedeployContainer[cp]:
+  - setupCP:
+      nodeId: cp
+
+onAfterClone:
+  - install: ${baseUrl}/scripts/resetReplication.jps?_r=${fn.random}
+    envName: ${event.response.env.envName}
+    settings:
+      db_user: ${globals.DB_USER}
+      db_pass: ${globals.DB_PASS}
+ 
+  - script: |
+        var resp = {result:0}
+        if (${event.response.env.sslstate}) {
+          resp.onAfterReturn = {setGlobals: {PROTOCOL: "https"}}
+        }
+        return resp;
+ 
+  - install: ${baseUrl}/scripts/setupDomain.jps?_r=${fn.random}
+    envName: ${event.response.env.envName}
+    settings:
+      domain: ${globals.PROTOCOL}://${event.response.env.domain}
+
+onAfterMigrate:
+  - install: ${baseUrl}/scripts/resetReplication.jps?_r=${fn.random}
+    envName: ${event.response.env.envName}
+    settings:
+      db_user: ${globals.DB_USER}
+      db_pass: ${globals.DB_PASS}
+ 
+  - script: |
+        var resp = {result:0}
+        if (${event.response.env.sslstate}) {
+          resp.onAfterReturn = {setGlobals: {PROTOCOL: "https"}}
+        }
+        return resp;
+ 
+  - install: ${baseUrl}/scripts/setupDomain.jps?_r=${fn.random}
+    envName: ${event.response.env.envName}
+    settings:
+      domain: ${globals.PROTOCOL}://${event.response.env.domain}
+  
+onInstall:
+
+  - log: Auto Scaling Triggers
+  - script: /scripts/addTriggers.js
+    nodeGroup: cp
+    resourceType: CPU
+    loadGrowth: slow
+    cleanOldTriggers: true
+    scaleDownLimit: ${nodes.cp.length}
+    
+  - log: Set Node Display Name
+  - setNodeDisplayName [bl]: Load balancer
+  - setNodeDisplayName [cp]: AppServer
+  - setNodeDisplayName [storage]: Storage
+  - setNodeDisplayName [nosqldb]: Cache
+
+  - log: Master-Master Replication Setup
+  - install: https://raw.githubusercontent.com/jelastic-jps/mysql-cluster/master/scripts/ms-mm-configuration.jps
+    settings:        
+      path: https://raw.githubusercontent.com/jelastic-jps/mysql-cluster/master/
+      scheme: master
+      db_user: "${globals.DB_USER}"
+      db_pass: "${globals.DB_PASS}"
+      custom_conf: "${baseUrl}/configs/sqldb/dkan.cnf"
+    nodeGroup: sqldb
+      
+  - setupCP:
+      nodeId: cp
+          
+  - install-dkan
+  
+  - install: ${baseUrl}/scripts/setupDomain.jps?_r=${fn.random}
+    settings:
+       domain: ${env.url}
+    
+actions:
+ 
+  install-dkan:
+    - cmd[${nodes.cp.master.id}]: |-
+        [ ! -d $HOME/bin ] && mkdir $HOME/bin
+        wget ${baseUrl}/scripts/setupDKAN.sh?_r=${fn.random} -O ~/bin/setupDKAN.sh &>> /var/log/run.log
+        wget ${baseUrl}/modules/dkan.tar.gz -O /tmp/dkan.tar.gz &>> /var/log/run.log
+    - cmd[nosqldb]: cat /etc/redis.conf | grep "^requirepass" | cut -d ' ' -f2
+    - cmd[${nodes.cp.master.id}]: |-
+        bash ~/bin/setupDKAN.sh --init true --DB_HOST sqldb --DB_USER ${globals.DB_USER} --DB_PASS ${globals.DB_PASS} --REDIS_HOST nosqldb  --REDIS_PASS ${response.out} --DKAN_ADMIN_PASS ${globals.DKAN_ADMIN_PASS};
+
+  setupCP:
+    - log: CP OPTIMIZATION
+    - install: https://raw.githubusercontent.com/jelastic/templates/master/config.jps?_r=${fn.random}
+      settings:
+        targetGroup: cp
+        targetNodes: ${this.nodeId}
+        optimization: drupal7
+           
+success:
+  email: success/email/cluster/oneregion-${globals.EMAIL}.md?_r=${fn.random}
+  text: success/text/oneregion/${globals.SUCCESS}.md?_r=${fn.random}
+
+startPage: ${env.url}
