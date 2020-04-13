@@ -24,6 +24,7 @@ ARGUMENT_LIST=(
 
 DKAN_PATH="/var/www/webroot/ROOT"
 DKAN_CONFIG="${DKAN_PATH}/sites/default/settings.php"
+TMP_DKAN_CONFIG="/tmp/settings.php"
 DB_NAME="dkan"
 
 SED=`which sed`
@@ -101,22 +102,22 @@ done
 lOG="/var/log/run.log"
 
 if [ $init == 'true' ] ; then
-  rm -rf ${DKAN_PATH}/*
-  $TAR -C "${DKAN_PATH}" -xzf "/tmp/dkan.tar.gz";
 
   $MYSQL -u${DB_USER} -p${DB_PASS} -h ${DB_HOST} -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME};"
   $MYSQL -u${DB_USER} -p${DB_PASS} -h ${DB_HOST} ${DB_NAME} < ${DKAN_PATH}/dkan.sql
 
-  chmod 777 -R ${DKAN_PATH}/*
-
+  cp ${DKAN_CONFIG} ${TMP_DKAN_CONFIG}
+  
   ###Mysql connection
-  $SED -i "s/JELASTIC_DB_USER/${DB_USER}/" ${DKAN_CONFIG};
-  $SED -i "s/JELASTIC_DB_PASS/${DB_PASS}/" ${DKAN_CONFIG};
-  $SED -i "s/JELASTIC_DB_NAME/${DB_NAME}/" ${DKAN_CONFIG};
+  $SED -i "s/JELASTIC_DB_USER/${DB_USER}/" ${TMP_DKAN_CONFIG};
+  $SED -i "s/JELASTIC_DB_PASS/${DB_PASS}/" ${TMP_DKAN_CONFIG};
+  $SED -i "s/JELASTIC_DB_NAME/${DB_NAME}/" ${TMP_DKAN_CONFIG};
   
   ###Redis connection
-  $SED -i "s/JELASTIC_REDIS_HOST/${REDIS_HOST}/" ${DKAN_CONFIG};
-  $SED -i "s/JELASTIC_REDIS_PASS/${REDIS_PASS}/" ${DKAN_CONFIG};
+  $SED -i "s/JELASTIC_REDIS_HOST/127.0.0.1/" ${TMP_DKAN_CONFIG};
+  $SED -i "s/JELASTIC_REDIS_PASS//" ${TMP_DKAN_CONFIG};
+  
+  cp ${TMP_DKAN_CONFIG} ${DKAN_CONFIG}
   
   ###Admin password
   cd ${DKAN_PATH};
@@ -125,7 +126,9 @@ if [ $init == 'true' ] ; then
 fi
 
 if [ $DOMAIN != 'false' ] ; then
-	sed -i "s/\$base_url =.*//" ${DKAN_CONFIG};
+  cp ${DKAN_CONFIG} ${TMP_DKAN_CONFIG}
+	sed -i "s/\$base_url =.*//" ${TMP_DKAN_CONFIG};
 	DOMAIN=$(echo $DOMAIN | sed -e 's#/$##')
-	echo "\$base_url = '${DOMAIN}';" >> ${DKAN_CONFIG};
+	echo "\$base_url = '${DOMAIN}';" >> ${TMP_DKAN_CONFIG};
+	cp ${TMP_DKAN_CONFIG} ${DKAN_CONFIG}
 fi

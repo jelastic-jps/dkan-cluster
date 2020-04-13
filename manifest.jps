@@ -9,7 +9,7 @@ description:
   short: DKAN is a community-driven, free and open source open data platform
 logo: images/dkan-70.png
 
-baseUrl: https://raw.githubusercontent.com/jelastic-jps/dkan-cluster/master
+baseUrl: https://raw.githubusercontent.com/jelastic-jps/dkan-cluster/v2.0.0
 
 onBeforeInstall: /scripts/beforeinstall.js?_r=${fn.random}
 
@@ -86,9 +86,10 @@ onInstall:
   - log: Set Node Display Name
   - setNodeDisplayName [bl]: Load balancer
   - setNodeDisplayName [cp]: AppServer
-  - setNodeDisplayName [storage]: Storage
-  - setNodeDisplayName [nosqldb]: Cache
+  - setNodeDisplayName [storage]: GlusterFS
 
+  - mountGlusterFS  
+  
   - log: Master-Master Replication Setup
   - install: https://raw.githubusercontent.com/jelastic-jps/mysql-cluster/master/scripts/ms-mm-configuration.jps
     settings:        
@@ -101,7 +102,9 @@ onInstall:
       
   - setupCP:
       nodeId: cp
-          
+
+  - get-dkan      
+
   - install-dkan
   
   - install: ${baseUrl}/scripts/setupDomain.jps?_r=${fn.random}
@@ -109,15 +112,19 @@ onInstall:
        domain: ${env.url}
     
 actions:
- 
+
+  get-dkan:
+    - cmd[${nodes.storage.master.id}]: |-
+        wget ${baseUrl}/modules/dkan.tar.gz -O /tmp/dkan.tar.gz &>> /var/log/run.log
+        tar -C /data -xzf /tmp/dkan.tar.gz &>> /var/log/run.log
+        chmod 777 -R /data/*
+        chown 700 -R /data/*
+
   install-dkan:
     - cmd[${nodes.cp.master.id}]: |-
         [ ! -d $HOME/bin ] && mkdir $HOME/bin
         wget ${baseUrl}/scripts/setupDKAN.sh?_r=${fn.random} -O ~/bin/setupDKAN.sh &>> /var/log/run.log
-        wget ${baseUrl}/modules/dkan.tar.gz -O /tmp/dkan.tar.gz &>> /var/log/run.log
-    - cmd[nosqldb]: cat /etc/redis.conf | grep "^requirepass" | cut -d ' ' -f2
-    - cmd[${nodes.cp.master.id}]: |-
-        bash ~/bin/setupDKAN.sh --init true --DB_HOST sqldb --DB_USER ${globals.DB_USER} --DB_PASS ${globals.DB_PASS} --REDIS_HOST nosqldb  --REDIS_PASS ${response.out} --DKAN_ADMIN_PASS ${globals.DKAN_ADMIN_PASS};
+         bash ~/bin/setupDKAN.sh --init true --DB_HOST sqldb --DB_USER ${globals.DB_USER} --DB_PASS ${globals.DB_PASS}  --DKAN_ADMIN_PASS ${globals.DKAN_ADMIN_PASS};
 
   setupCP:
     - log: CP OPTIMIZATION
@@ -126,7 +133,18 @@ actions:
         targetGroup: cp
         targetNodes: ${this.nodeId}
         optimization: drupal7
-           
+
+  mountGlusterFS:
+    - log: Mount GlusterFS
+    - api:
+      - method: jelastic.environment.file.AddMountPointByGroup
+        params:
+          nodeGroup: cp
+          sourceNodeId: ${nodes.storage.master.id}
+          sourcePath: /data
+          path: /var/www/webroot/ROOT
+          sourceAddressType: NODE_GROUP
+
 success:
   email: success/email/cluster/oneregion-${globals.EMAIL}.md?_r=${fn.random}
   text: success/text/oneregion/${globals.SUCCESS}.md?_r=${fn.random}
