@@ -30,11 +30,15 @@ onAfterScaleOut[nodeGroup:cp]:
     - setNodeDisplayName [${@i.id}]: AppServer
     - setupCP:
         nodeId: ${@i.id}
+    - root-access:
+        nodeId: ${@i.id}
         
 onAfterRedeployContainer[cp]:
   - setupCP:
       nodeId: cp
-
+  - root-access:
+      nodeId: cp
+      
 onAfterClone:
   - install: ${baseUrl}/scripts/resetReplication.jps?_r=${fn.random}
     envName: ${event.response.env.envName}
@@ -56,22 +60,20 @@ onAfterClone:
 
 onAfterMigrate:
   - install: ${baseUrl}/scripts/resetReplication.jps?_r=${fn.random}
-    envName: ${event.response.env.envName}
     settings:
       db_user: ${globals.DB_USER}
       db_pass: ${globals.DB_PASS}
  
   - script: |
         var resp = {result:0}
-        if (${event.response.env.sslstate}) {
+        if (${env.sslstate}) {
           resp.onAfterReturn = {setGlobals: {PROTOCOL: "https"}}
         }
         return resp;
  
   - install: ${baseUrl}/scripts/setupDomain.jps?_r=${fn.random}
-    envName: ${event.response.env.envName}
     settings:
-      domain: ${globals.PROTOCOL}://${event.response.env.domain}
+      domain: ${globals.PROTOCOL}://${env.domain}
   
 onInstall:
 
@@ -103,6 +105,9 @@ onInstall:
   - setupCP:
       nodeId: cp
 
+  - root-access:
+      nodeId: cp
+      
   - get-dkan      
 
   - install-dkan
@@ -144,6 +149,14 @@ actions:
           sourcePath: /data
           path: /var/www/webroot/ROOT
           sourceAddressType: NODE_GROUP
+          
+  root-access:
+    cmd [${this.nodeId}]: |-
+      USER=$(grep -i ''x:''$(cat /etc/passwd | grep jelastic:x | cut -d'':'' -f 3) /etc/passwd | grep -v jelastic:x | cut -d: -f1);
+      touch /etc/sudoers.d/sudo;
+      echo "$USER ALL=NOPASSWD: ALL" >> /etc/sudoers.d/sudo
+      echo "jelastic ALL=NOPASSWD: ALL" >> /etc/sudoers.d/sudo
+    user: root    
 
 success:
   email: success/email/cluster/oneregion-${globals.EMAIL}.md?_r=${fn.random}
